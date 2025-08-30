@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tableau de bord — ISS · Horloge · Page du jour (FR)</title>
+  <!-- Font (Inter-like) -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Chessboard CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/chessboardjs@1.0.0/chessboardjs.min.css">
+  <style>
+    :root {
+      --bg: #111827;
+      --card: #1f2937;
+      --muted: #9ca3af;
+      --accent: #d1d5db;
+      --glass: rgba(0, 0, 0, 0.7);
+      --shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+      --accent-2: #3b82f6;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+      color: var(--accent);
+      background: var(--bg);
+      transition: background 0.3s, color 0.3s;
+    }
+    /* Layout */
+    .wrap { max-width: 1200px; margin: 28px auto; padding: 20px; display: grid; grid-template-columns: 260px 1fr; gap: 20px; }
+    /* Sidebar */
+    .sidebar { background: var(--card); border-radius: 12px; padding: 18px; box-shadow: var(--shadow); height: fit-content; }
+    .brand { font-weight: 700; font-size: 16px; margin-bottom: 6px; }
+    .subtitle { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+    .nav { display: flex; flex-direction: column; gap: 8px; }
+    .nav a { display: block; padding: 8px; border-radius: 8px; color: var(--accent-2); text-decoration: none; font-weight: 600; }
+    .nav a:hover { background: #374151; }
+    .card { background: var(--card); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); }
+    .grid-main { display: grid; grid-template-columns: 1fr 420px; gap: 20px; }
+    .top-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    h1 { font-size: 18px; margin: 0; }
+    .muted { color: var(--muted); font-size: 13px; }
+    /* Map */
+    #map { height: 340px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(0, 0, 0, 0.2); cursor: pointer; }
+    .iss-info { margin-top: 10px; font-size: 14px; color: var(--muted); }
+    /* Échiquier */
+    #chess-container { display: none; height: 340px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(0, 0, 0, 0.2); position: relative; }
+    #chess-board { width: 100%; height: 300px; }
+    #chess-problem-title { text-align: center; margin-bottom: 10px; font-weight: 600; padding: 8px; background: var(--card); }
+    #chess-info { text-align: center; margin-top: 10px; font-size: 14px; color: var(--muted); }
+    #back-to-map { position: absolute; top: 10px; right: 10px; background: var(--card); border: none; border-radius: 6px; padding: 6px 10px; color: var(--accent); font-weight: 600; cursor: pointer; box-shadow: var(--shadow); z-index: 100; }
+    /* Clock column */
+    .clock-box { display: flex; gap: 14px; align-items: center; }
+    canvas { background: transparent; border-radius: 8px; }
+    .clock-meta { display: flex; flex-direction: column; }
+    .digital { font-size: 18px; font-weight: 700; }
+    .date { font-size: 13px; color: var(--muted); }
+    /* Wiki */
+    .wiki-title { display: flex; justify-content: space-between; align-items: center; }
+    .wiki-list { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+    .wiki-item { padding: 12px; border-radius: 10px; background: linear-gradient(180deg, #1f2937, #374151); border: 1px solid rgba(0, 0, 0, 0.2); }
+    .wiki-item h3 { margin: 0 0 6px 0; font-size: 15px; }
+    .wiki-item p { margin: 0; color: var(--muted); font-size: 14px; }
+    .links-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .link-pill { padding: 8px 10px; border-radius: 8px; background: #374151; border: 1px solid rgba(0, 0, 0, 0.2); font-weight: 600; color: var(--accent-2); text-decoration: none; }
+    footer { grid-column: 1/3; text-align: center; color: var(--muted); font-size: 13px; margin-top: 18px; }
+    /* Bouton mode sombre/clair */
+    .theme-toggle { position: fixed; top: 20px; right: 20px; z-index: 1000; background: var(--card); border: none; border-radius: 8px; padding: 8px 12px; color: var(--accent); font-weight: 600; cursor: pointer; box-shadow: var(--shadow); transition: background 0.3s, color 0.3s; }
+    @media (max-width: 980px) {
+      .wrap { padding: 12px; grid-template-columns: 1fr; gap: 12px; }
+      .grid-main { grid-template-columns: 1fr; align-items: stretch; }
+      #map, #chess-container { height: 260px; }
+      #chess-board { height: 220px; }
+    }
+  </style>
+</head>
+<body>
+  <button class="theme-toggle" id="themeToggle">☀️</button>
+  <div class="wrap">
+    <aside class="sidebar">
+      <div class="brand">Salut, Celest 👤</div>
+      <div class="subtitle">Ton dashboard utile au quotidien.</div>
+      <div style="height: 12px;"></div>
+      <div class="muted" style="font-size: 13px;">Liens rapides</div>
+      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+        <a class="link-pill" href="https://lichess.org/" target="_blank">♞ Lichess.org</a>
+        <a class="link-pill" href="https://www.chess.com/play" target="_blank">♟ Chess.com</a>
+        <a class="link-pill" href="https://www.chessable.com/" target="_blank">♜ Chessable</a>
+        <a class="link-pill" href="https://fr.wikipedia.org/" target="_blank">🌐 Wikipédia</a>
+        <a class="link-pill" href="https://educonnect.education.gouv.fr/idp/profile/SAML2/Unsolicited/SSO?execution=e1s2" target="_blank">🎓 ENT</a>
+        <a class="link-pill" href="https://chatgpt.com/" target="_blank">֎ ChatGPT</a>
+        <a class="link-pill" href="https://chat.mistral.ai/" target="_blank">🤖 LeChat Mistral</a>
+      </div>
+      <hr style="border: 1px solid #5a5a5a; margin: 20px 0;">
+      <nav class="nav">
+        <a href="#iss">🛰️ ISS — Position</a>
+        <a href="#clock">🕰️ Horloge</a>
+        <a href="#wiki">🌐 Wiki du jour</a>
+      </nav>
+    </aside>
+    <main>
+      <div class="card">
+        <div class="top-row">
+          <div>
+            <h1 id="title">Tableau de bord</h1>
+            <div class="muted">Suivi en temps réel de l'ISS · Horloge analogique · Page Wikipédia du jour</div>
+          </div>
+          <div class="muted">↻ 5s</div>
+        </div>
+        <div class="grid-main">
+          <!-- left column -->
+          <div>
+            <section id="iss" class="card" style="margin-bottom: 16px;">
+              <h2 style="margin: 0 0 10px 0;">🛰️ Position actuelle de l'ISS</h2>
+              <div id="map"></div>
+              <div id="chess-container">
+                <button id="back-to-map">Retour à la carte</button>
+                <div id="chess-problem-title">Problème du jour</div>
+                <div id="chess-board"></div>
+                <div id="chess-info">À toi de jouer ! Trouve le meilleur coup.</div>
+              </div>
+              <div class="iss-info" id="iss-info">Chargement...</div>
+            </section>
+          </div>
+          <!-- right column -->
+          <aside>
+            <section id="clock" class="card" style="margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin: 0;">🕰️ Horloge</h2>
+                <div class="muted" id="clock-zone">Europe/Paris</div>
+              </div>
+              <div style="margin-top: 12px; display: flex; align-items: center; gap: 12px;">
+                <canvas id="analogClock" width="220" height="220"></canvas>
+                <div class="clock-meta">
+                  <div class="digital" id="digitalTime">--:--:--</div>
+                  <div class="date" id="digitalDate">—</div>
+                  <div style="height: 8px;"></div>
+                  <div class="muted" style="font-size: 13px;">Chiffres autour du cadran</div>
+                </div>
+              </div>
+            </section>
+            <section id="wiki" class="card">
+              <div class="wiki-title">
+                <h2 style="margin: 0;">🌐 Page du jour — Wikipédia</h2>
+                <div class="muted" id="wiki-date">—</div>
+              </div>
+              <div id="wiki-container" class="wiki-list" style="margin-top: 10px;">
+                <div class="wiki-item">Chargement…</div>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </div>
+      <footer>&copy; tout droits réservés à CelestYassou - 2025 · données publiques · Leaflet · Wikipédia FR · Open-Notify · et liens externes</footer>
+    </main>
+  </div>
+
+  <!-- Scripts à la fin du body -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chess.js@0.12.4/chess.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chessboardjs@1.0.0/chessboardjs.min.js"></script>
+  <script>
+    // Variables globales pour l'échiquier
+    let chessGame;
+    let chessBoard;
+    let currentPuzzle;
+
+    // Base de données locale de problèmes d'échecs (repli)
+    const localChessPuzzles = [
+      {
+        id: 1,
+        fen: "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1",
+        solution: ["Nf3", "Nc6", "e4"],
+        rating: 1200,
+        themes: ["fork", "tactics"]
+      },
+      {
+        id: 2,
+        fen: "8/8/8/5N2/8/8/8/8 w - - 0 1",
+        solution: ["Nf6"],
+        rating: 1500,
+        themes: ["mateIn2"]
+      },
+      {
+        id: 3,
+        fen: "r2q1rk1/ppp2ppp/2n1bn2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 b - - 0 1",
+        solution: ["Bxf2+", "Kh1", "Bxe1"],
+        rating: 1800,
+        themes: ["sacrifice", "mateIn3"]
+      }
+    ];
+
+    // ----------------------------
+    // Gestion du thème sombre/clair
+    // ----------------------------
+    const themeToggle = document.getElementById('themeToggle');
+    let isDarkMode = true;
+
+    themeToggle.addEventListener('click', () => {
+      isDarkMode = !isDarkMode;
+      if (isDarkMode) {
+        document.documentElement.style.setProperty('--bg', '#111827');
+        document.documentElement.style.setProperty('--card', '#1f2937');
+        document.documentElement.style.setProperty('--muted', '#9ca3af');
+        document.documentElement.style.setProperty('--accent', '#d1d5db');
+        document.documentElement.style.setProperty('--glass', 'rgba(0, 0, 0, 0.7)');
+        document.documentElement.style.setProperty('--shadow', '0 6px 18px rgba(0, 0, 0, 0.2)');
+        document.documentElement.style.setProperty('--accent-2', '#3b82f6');
+        themeToggle.textContent = '☀️';
+      } else {
+        document.documentElement.style.setProperty('--bg', '#f7f8fb');
+        document.documentElement.style.setProperty('--card', '#ffffff');
+        document.documentElement.style.setProperty('--muted', '#6b7280');
+        document.documentElement.style.setProperty('--accent', '#111827');
+        document.documentElement.style.setProperty('--glass', 'rgba(255, 255, 255, 0.7)');
+        document.documentElement.style.setProperty('--shadow', '0 6px 18px rgba(15, 23, 42, 0.06)');
+        document.documentElement.style.setProperty('--accent-2', '#2563eb');
+        themeToggle.textContent = '🌑';
+      }
+    });
+
+    // ----------------------------
+    // Basculer entre la carte ISS et l'échiquier
+    // ----------------------------
+    document.getElementById('map').addEventListener('click', () => {
+      document.getElementById('map').style.display = 'none';
+      document.getElementById('chess-container').style.display = 'block';
+      fetchChessPuzzle();
+    });
+
+    document.getElementById('back-to-map').addEventListener('click', () => {
+      document.getElementById('chess-container').style.display = 'none';
+      document.getElementById('map').style.display = 'block';
+    });
+
+    // Fonction pour récupérer un problème d'échecs (avec repli local)
+    async function fetchChessPuzzle() {
+      try {
+        // Essayer de récupérer un problème depuis Lichess via un proxy CORS
+        const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
+        const targetUrl = 'https://lichess.org/api/puzzle/daily';
+        const response = await fetch(proxyUrl + targetUrl);
+
+        if (!response.ok) {
+          throw new Error("Impossible de charger le problème du jour depuis Lichess.");
+        }
+
+        const data = await response.json();
+        currentPuzzle = data;
+
+        // Initialiser l'échiquier
+        chessGame = new Chess(currentPuzzle.initialPly);
+
+        // Configurer l'échiquier
+        chessBoard = Chessboard('chess-board', {
+          draggable: true,
+          position: chessGame.fen(),
+          onDragStart: onDragStart,
+          onDrop: onDrop,
+          onSnapEnd: onSnapEnd,
+          pieceTheme: 'https://cdn.jsdelivr.net/npm/chessboardjs@1.0.0/img/chesspieces/wikipedia/{piece}.png'
+        });
+
+        // Afficher les informations du problème
+        const themes = currentPuzzle.themes ? currentPuzzle.themes.join(', ') : 'inconnu';
+        const rating = currentPuzzle.rating || '?';
+        document.getElementById('chess-problem-title').textContent =
+          `Problème du jour — Lichess (${rating} | Thèmes: ${themes})`;
+        document.getElementById('chess-info').textContent =
+          'À toi de jouer ! Trouve le meilleur coup.';
+      } catch (error) {
+        console.error("Erreur lors du chargement du problème Lichess :", error);
+        // Utiliser un problème local en cas d'échec
+        fetchLocalPuzzle();
+      }
+    }
+
+    // Fonction pour récupérer un problème local
+    function fetchLocalPuzzle() {
+      const randomIndex = Math.floor(Math.random() * localChessPuzzles.length);
+      const puzzle = localChessPuzzles[randomIndex];
+      currentPuzzle = puzzle;
+
+      // Initialiser l'échiquier avec la position du puzzle
+      chessGame = new Chess(puzzle.fen);
+
+      // Configurer l'échiquier
+      chessBoard = Chessboard('chess-board', {
+        draggable: true,
+        position: chessGame.fen(),
+        onDragStart: onDragStart,
+        onDrop: onDrop,
+        onSnapEnd: onSnapEnd,
+        pieceTheme: 'https://cdn.jsdelivr.net/npm/chessboardjs@1.0.0/img/chesspieces/wikipedia/{piece}.png'
+      });
+
+      // Afficher les informations du problème
+      document.getElementById('chess-problem-title').textContent =
+        `Problème aléatoire (Rating: ${puzzle.rating} | Thèmes: ${puzzle.themes.join(', ')})`;
+      document.getElementById('chess-info').textContent =
+        'À toi de jouer ! Trouve le meilleur coup.';
+    }
+
+    // Fonctions pour gérer les déplacements sur l'échiquier
+    function onDragStart(source, piece, position, orientation) {
+      if (chessGame.turn() === 'w' && piece.search(/^b/) !== -1) return false;
+      if (chessGame.turn() === 'b' && piece.search(/^w/) !== -1) return false;
+    }
+
+    function onDrop(source, target) {
+      const move = chessGame.move({
+        from: source,
+        to: target,
+        promotion: 'q'
+      });
+
+      if (move === null) return 'snapback';
+
+      chessBoard.position(chessGame.fen());
+
+      // Vérifier si le coup fait partie de la solution
+      const moveSan = move.san;
+      if (currentPuzzle.solution && currentPuzzle.solution.includes(moveSan)) {
+        document.getElementById('chess-info').textContent = 'Bon coup ! Continue pour résoudre le problème.';
+      } else {
+        document.getElementById('chess-info').textContent = 'Ce coup ne fait pas partie de la solution. Essaie encore !';
+      }
+    }
+
+    function onSnapEnd() {
+      chessBoard.position(chessGame.fen());
+    }
+
+    // ----------------------------
+    // ISS Tracking (Leaflet)
+    // ----------------------------
+    const map = L.map('map', { zoomControl: true }).setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+    const issIcon = L.icon({
+      iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/d/d0/International_Space_Station.svg',
+      iconSize: [48, 32],
+      iconAnchor: [24, 16]
+    });
+    const issMarker = L.marker([0, 0], { icon: issIcon }).addTo(map);
+    const issPolyline = L.polyline([], { color: '#3b82f6', weight: 3, opacity: 0.9 }).addTo(map);
+    const trackPoints = [];
+    async function fetchISS() {
+      try {
+        const res = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const d = await res.json();
+        const lat = d.latitude;
+        const lon = d.longitude;
+        const alt = d.altitude ? Number(d.altitude).toFixed(1) : '—';
+        const vel = d.velocity ? (d.velocity * 3.6).toFixed(0) : '—';
+        const ts = d.timestamp ? new Date(d.timestamp * 1000) : new Date();
+        issMarker.setLatLng([lat, lon]);
+        trackPoints.push([lat, lon]);
+        if (trackPoints.length > 200) trackPoints.shift();
+        issPolyline.setLatLngs(trackPoints);
+        if (map.getZoom() < 6) map.panTo([lat, lon], { animate: true, duration: 0.6 });
+        document.getElementById('iss-info').innerHTML = `
+          <div style="display:flex;justify-content:space-between"><div>Latitude</div><div><strong>${lat.toFixed(4)}</strong></div></div>
+          <div style="display:flex;justify-content:space-between"><div>Longitude</div><div><strong>${lon.toFixed(4)}</strong></div></div>
+          <div style="display:flex;justify-content:space-between"><div>Altitude (km)</div><div>${alt}</div></div>
+          <div style="display:flex;justify-content:space-between"><div>Vitesse (km/h)</div><div>${vel}</div></div>
+          <div style="margin-top:6px;font-size:12px;color:var(--muted)">Dernière MAJ: ${ts.toLocaleString('fr-FR')}</div>
+        `;
+      } catch (err) {
+        console.error('ISS fetch error', err);
+        document.getElementById('iss-info').textContent = 'Impossible de récupérer la position ISS — vérifie ta connexion.';
+      }
+    }
+    fetchISS();
+    setInterval(fetchISS, 5000);
+
+    // ----------------------------
+    // Analog clock (Canvas) - Version corrigée
+    // ----------------------------
+    const clockCanvas = document.getElementById('analogClock');
+    const clockCtx = clockCanvas.getContext('2d');
+    const clockSize = clockCanvas.width;
+    const clockCx = clockSize / 2, clockCy = clockSize / 2, clockR = clockSize * 0.42;
+
+    // Centre le contexte du canvas
+    clockCtx.translate(clockCx, clockCy);
+
+    function drawClockFrame() {
+      // Fond du cadran
+      clockCtx.beginPath();
+      clockCtx.fillStyle = isDarkMode ? '#1f2937' : '#ffffff';
+      clockCtx.arc(0, 0, clockR + 16, 0, Math.PI * 2);
+      clockCtx.fill();
+
+      // Cercle extérieur
+      clockCtx.beginPath();
+      clockCtx.lineWidth = 4;
+      clockCtx.strokeStyle = isDarkMode ? '#4b5563' : '#e6eef8';
+      clockCtx.arc(0, 0, clockR, 0, Math.PI * 2);
+      clockCtx.stroke();
+
+      // Chiffres
+      clockCtx.fillStyle = isDarkMode ? '#d1d5db' : '#111827';
+      clockCtx.font = '14px Inter, Arial';
+      clockCtx.textAlign = 'center';
+      clockCtx.textBaseline = 'middle';
+      for (let n = 1; n <= 12; n++) {
+        const ang = (n / 12) * Math.PI * 2 - Math.PI / 2;
+        const x = Math.cos(ang) * (clockR - 28);
+        const y = Math.sin(ang) * (clockR - 28);
+        clockCtx.fillText(String(n), x, y);
+      }
+
+      // Graduations
+      for (let i = 0; i < 60; i++) {
+        const ang = (i / 60) * Math.PI * 2 - Math.PI / 2;
+        const inner = clockR - 12;
+        const outer = inner + (i % 5 === 0 ? 10 : 5);
+        clockCtx.beginPath();
+        clockCtx.moveTo(Math.cos(ang) * inner, Math.sin(ang) * inner);
+        clockCtx.lineTo(Math.cos(ang) * outer, Math.sin(ang) * outer);
+        clockCtx.lineWidth = (i % 5 === 0 ? 3 : 1);
+        clockCtx.strokeStyle = isDarkMode ? '#4b5563' : '#e6eef8';
+        clockCtx.stroke();
+      }
+    }
+
+    function drawClockHand(angle, length, width, color) {
+      clockCtx.beginPath();
+      clockCtx.moveTo(0, 0);
+      clockCtx.lineWidth = width;
+      clockCtx.lineCap = 'round';
+      clockCtx.strokeStyle = color;
+      clockCtx.rotate(angle);
+      clockCtx.lineTo(0, -length);
+      clockCtx.stroke();
+      clockCtx.rotate(-angle);
+    }
+
+    function updateClock() {
+      const now = new Date();
+      const sec = now.getSeconds() + now.getMilliseconds() / 1000;
+      const min = now.getMinutes() + sec / 60;
+      const hr = (now.getHours() % 12) + min / 60;
+
+      // Effacer le cadran (sans effacer le fond)
+      clockCtx.clearRect(-clockR - 16, -clockR - 16, (clockR + 16) * 2, (clockR + 16) * 2);
+
+      // Redessiner le cadran
+      drawClockFrame();
+
+      // Dessiner les aiguilles
+      drawClockHand((hr / 12) * Math.PI * 2 - Math.PI / 2, clockR * 0.5, 6, isDarkMode ? '#d1d5db' : '#111827'); // Heures
+      drawClockHand((min / 60) * Math.PI * 2 - Math.PI / 2, clockR * 0.75, 4, isDarkMode ? '#d1d5db' : '#111827'); // Minutes
+      drawClockHand((sec / 60) * Math.PI * 2 - Math.PI / 2, clockR * 0.88, 2, '#ef4444'); // Secondes
+
+      // Centre de l'horloge
+      clockCtx.beginPath();
+      clockCtx.arc(0, 0, 5, 0, Math.PI * 2);
+      clockCtx.fillStyle = '#3b82f6';
+      clockCtx.fill();
+
+      // Mettre à jour l'heure numérique
+      document.getElementById('digitalTime').textContent = now.toLocaleTimeString('fr-FR');
+      document.getElementById('digitalDate').textContent = now.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    }
+
+    // Initialiser l'horloge
+    drawClockFrame();
+    updateClock();
+
+    // Mettre à jour l'horloge toutes les 200ms
+    setInterval(updateClock, 200);
+
+    // ----------------------------
+    // Page du jour — Wikipédia FR
+    // ----------------------------
+    async function fetchWikiFR() {
+      const container = document.getElementById('wiki-container');
+      const dateLabel = document.getElementById('wiki-date');
+      container.innerHTML = '<div class="wiki-item">Chargement…</div>';
+      try {
+        const now = new Date();
+        const Y = now.getFullYear();
+        const M = String(now.getMonth() + 1).padStart(2, '0');
+        const D = String(now.getDate()).padStart(2, '0');
+        let urlFeatured = `https://fr.wikipedia.org/api/rest_v1/feed/featured/${Y}/${M}/${D}`;
+        let resp = await fetch(urlFeatured);
+        if (resp.ok) {
+          const data = await resp.json();
+          let article = null;
+          if (data.tfa) article = data.tfa;
+          else if (data.featured && data.featured.title) article = data.featured;
+          else if (data.featured && data.featured['original']) article = data.featured['original'];
+          else if (data.lead && data.lead.displaytitle) article = data.lead;
+          else if (data.top && data.top.title) article = data.top;
+          if (article && (article.title || article.displaytitle || article.normalizedtitle)) {
+            const title = article.title || article.displaytitle || article.normalizedtitle || 'Article du jour';
+            const extract = article.extract || article.description || (article.display && article.display.text) || '';
+            const link = (article.content_urls && article.content_urls.desktop && article.content_urls.desktop.page)
+              ? article.content_urls.desktop.page
+              : `https://fr.wikipedia.org/wiki/${encodeURIComponent(title.replace(/\s+/g, '_'))}`;
+            container.innerHTML = `
+              <div class="wiki-item">
+                <h3><a href="${link}" target="_blank" rel="noopener">${title}</a></h3>
+                <p>${extract ? escapeHtml(extract) : "Aperçu non disponible — clique pour lire l'article."}</p>
+              </div>
+            `;
+            dateLabel.textContent = now.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+            return;
+          }
+        }
+        let urlOnThis = `https://fr.wikipedia.org/api/rest_v1/feed/onthisday/all/${M}/${D}`;
+        resp = await fetch(urlOnThis);
+        if (resp.ok) {
+          const data = await resp.json();
+          const items = [];
+          if (data.events) items.push(...data.events);
+          if (data.births) items.push(...data.births);
+          if (data.deaths) items.push(...data.deaths);
+          if (items.length) {
+            const it = items[0];
+            const title = it.text || (it.pages && it.pages[0] && it.pages[0].normalizedtitle) || 'Événement du jour';
+            const link = (it.pages && it.pages[0] && it.pages[0].content_urls && it.pages[0].content_urls.desktop && it.pages[0].content_urls.desktop.page)
+              ? it.pages[0].content_urls.desktop.page
+              : `https://fr.wikipedia.org/wiki/${encodeURIComponent(title.replace(/\s+/g, '_'))}`;
+            const year = it.year ? `${it.year} — ` : '';
+            container.innerHTML = `
+              <div class="wiki-item">
+                <h3><a href="${link}" target="_blank" rel="noopener">${year}${escapeHtml(title)}</a></h3>
+                <p>${escapeHtml(it.text || (it.pages && it.pages[0] && it.pages[0].extract) || '')}</p>
+              </div>
+            `;
+            dateLabel.textContent = now.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+            return;
+          }
+        }
+        container.innerHTML = '<div class="wiki-item">Aucune donnée disponible pour aujourd\'hui.</div>';
+        dateLabel.textContent = now.toLocaleDateString('fr-FR');
+      } catch (err) {
+        console.error('Wiki fetch error', err);
+        container.innerHTML = '<div class="wiki-item">Impossible de charger la page du jour — vérifie ta connexion.</div>';
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    fetchWikiFR();
+
+    document.querySelectorAll('.nav a').forEach(a => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const target = document.querySelector(a.getAttribute('href'));
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  </script>
+</body>
+</html>
